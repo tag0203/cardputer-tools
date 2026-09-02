@@ -1,0 +1,9 @@
+# Local Wi-Fi credentials embedded at build time.
+src/**/wifi_presets.h
+
+# Arduino build output.
+build/
+.arduino/
+*.bin
+*.elf
+*.map
