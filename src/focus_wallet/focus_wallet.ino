@@ -48,6 +48,9 @@ constexpr uint8_t ADV_AUDIO_CODEC_ADDRESS = 0x18;
 constexpr uint32_t ADV_AUDIO_CODEC_I2C_FREQUENCY = 100000;
 constexpr uint32_t ADV_AUDIO_MUTE_SETTLE_MS = 10;
 constexpr uint32_t SPEAKER_COLD_START_SETTLE_MS = 30;
+constexpr gpio_num_t ADV_AUDIO_BCLK_PIN = GPIO_NUM_41;
+constexpr gpio_num_t ADV_AUDIO_DATA_PIN = GPIO_NUM_42;
+constexpr gpio_num_t ADV_AUDIO_LRCK_PIN = GPIO_NUM_43;
 constexpr uint8_t DISPLAY_BRIGHTNESS_NORMAL = 120;
 constexpr uint8_t DISPLAY_BRIGHTNESS_DIM = 20;
 
@@ -121,6 +124,8 @@ uint32_t nextWifiAttemptMs = 0;
 uint32_t lastUserInputMs = 0;
 DisplayPowerState displayPowerState = DisplayPowerState::ACTIVE;
 uint8_t settingsIndex = 0;
+bool settingsNumberInputActive = false;
+String settingsNumberInput;
 uint8_t launcherIndex = 0;
 WifiView wifiView = WifiView::STATUS;
 String wifiSsid;
@@ -439,16 +444,37 @@ void powerDownAdvAudioCodec() {
       ADV_AUDIO_CODEC_ADDRESS, 0x00, 0x00, ADV_AUDIO_CODEC_I2C_FREQUENCY);
 }
 
-void prepareSpeakerForSound() {
-  bool coldStart = !M5Cardputer.Speaker.isRunning();
-  M5Cardputer.Speaker.begin();
-  if (coldStart) {
-    // The ADV callback powers the codec up during begin(). Mute it again while
-    // its analog path and I2S clocks settle, without occupying a sound channel.
+void warmSpeakerMuted() {
+  // Preserve the mute bit while begin() powers the codec up. The ADV callback
+  // does not overwrite register 0x31, so no unstable I2S data reaches the DAC.
+  setAdvAudioMuted(true);
+  if (!M5Cardputer.Speaker.isRunning()) {
+    M5Cardputer.Speaker.begin();
     setAdvAudioMuted(true);
     delay(SPEAKER_COLD_START_SETTLE_MS);
   }
+}
+
+void prepareSpeakerForSound() {
+  warmSpeakerMuted();
   setAdvAudioMuted(false);
+}
+
+void driveAdvAudioPinsLow() {
+  if (M5.getBoard() != m5::board_t::board_M5CardputerADV) return;
+
+  gpio_config_t config = {};
+  config.pin_bit_mask = (1ULL << ADV_AUDIO_BCLK_PIN) |
+                        (1ULL << ADV_AUDIO_DATA_PIN) |
+                        (1ULL << ADV_AUDIO_LRCK_PIN);
+  config.mode = GPIO_MODE_OUTPUT;
+  config.pull_up_en = GPIO_PULLUP_DISABLE;
+  config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  config.intr_type = GPIO_INTR_DISABLE;
+  gpio_config(&config);
+  gpio_set_level(ADV_AUDIO_BCLK_PIN, 0);
+  gpio_set_level(ADV_AUDIO_DATA_PIN, 0);
+  gpio_set_level(ADV_AUDIO_LRCK_PIN, 0);
 }
 
 void beepDone() {
@@ -675,7 +701,9 @@ bool registerUserActivity() {
   if (displayPowerState == DisplayPowerState::ACTIVE) return false;
 
   bool consumeKey = displayPowerState == DisplayPowerState::SLEEPING;
-  if (consumeKey) M5Cardputer.Display.wakeup();
+  if (consumeKey) {
+    M5Cardputer.Display.wakeup();
+  }
   displayPowerState = DisplayPowerState::ACTIVE;
   M5Cardputer.Display.setBrightness(DISPLAY_BRIGHTNESS_NORMAL);
   dirty = true;
@@ -702,6 +730,9 @@ void suspendSpeakerForDisplaySleep() {
   // tone() lazily calls begin() the next time audio is needed, so keep the
   // speaker stopped across timer-only Light Sleep wakeups.
   M5Cardputer.Speaker.end();
+  // i2s_del_channel() leaves the external-I2S pins without clocks. Drive them
+  // Low without GPIO hold so waking the CPU does not toggle or float them.
+  driveAdvAudioPinsLow();
 }
 
 void updateDisplayPower() {
@@ -814,6 +845,11 @@ void setup() {
 
   preferences.begin("focuswallet", false);
   if (!loadData()) saveData();
+  if (data.settings.sound) {
+    // Warm up the codec and I2S path before the first key event, but keep the
+    // DAC muted until an actual sound is queued.
+    warmSpeakerMuted();
+  }
   wifiSsid = preferences.getString("wifi_ssid", "");
   wifiPassword = preferences.getString("wifi_pass", "");
   wifiAlwaysOn = preferences.getBool("wifi_always", false);
