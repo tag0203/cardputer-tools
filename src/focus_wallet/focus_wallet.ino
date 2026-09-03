@@ -1,6 +1,8 @@
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <driver/gpio.h>
+#include <esp_sleep.h>
 #include <esp_sntp.h>
 #include <time.h>
 #include "character_image.h"
@@ -9,7 +11,7 @@
 // Focus Wallet for M5Cardputer
 // ------------------------------------------------------------
 // Keyboard
-//   SPACE : start / pause / resume
+//   SPACE : start the next session / pause / resume
 //   X     : cancel the current timer
 //   F/B/U : focus / break / use free time
 //   S/D   : settings / daily history
@@ -38,7 +40,14 @@ constexpr uint16_t CLOCK_COLOR = 0x867D;
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
 constexpr uint32_t WIFI_SYNC_INTERVAL_MS = 60UL * 60UL * 1000UL;
 constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 5UL * 60UL * 1000UL;
-constexpr uint32_t DISPLAY_DIM_TIMEOUT_MS = 2UL * 60UL * 1000UL;
+constexpr uint32_t DISPLAY_DIM_TIMEOUT_MS = 30UL * 1000UL;
+constexpr uint32_t DISPLAY_SLEEP_TIMEOUT_MS = 2UL * 60UL * 1000UL;
+constexpr uint32_t LIGHT_SLEEP_IDLE_WAKE_INTERVAL_MS = 30UL * 1000UL;
+constexpr gpio_num_t ADV_KEYBOARD_INTERRUPT_PIN = GPIO_NUM_11;
+constexpr uint8_t ADV_AUDIO_CODEC_ADDRESS = 0x18;
+constexpr uint32_t ADV_AUDIO_CODEC_I2C_FREQUENCY = 100000;
+constexpr uint32_t ADV_AUDIO_MUTE_SETTLE_MS = 10;
+constexpr uint32_t SPEAKER_COLD_START_SETTLE_MS = 30;
 constexpr uint8_t DISPLAY_BRIGHTNESS_NORMAL = 120;
 constexpr uint8_t DISPLAY_BRIGHTNESS_DIM = 20;
 
@@ -49,6 +58,7 @@ enum class TimerMode : uint8_t { NONE, FOCUS, SHORT_BREAK, LONG_BREAK, FREE_TIME
 enum class TimerStatus : uint8_t { IDLE, RUNNING, PAUSED };
 enum class ResultType : uint8_t { NONE, FOCUS_DONE, REWARD_EARNED, BREAK_DONE, FREE_DONE };
 enum class WifiView : uint8_t { STATUS, SCANNING, NETWORKS, PASSWORD, CONNECTING };
+enum class DisplayPowerState : uint8_t { ACTIVE, DIMMED, SLEEPING };
 
 struct Settings {
   uint16_t focusMinutes = 25;
@@ -109,7 +119,7 @@ uint32_t timerRestoreDeadlineMs = 0;
 bool wifiAlwaysOn = false;
 uint32_t nextWifiAttemptMs = 0;
 uint32_t lastUserInputMs = 0;
-bool displayDimmed = false;
+DisplayPowerState displayPowerState = DisplayPowerState::ACTIVE;
 uint8_t settingsIndex = 0;
 uint8_t launcherIndex = 0;
 WifiView wifiView = WifiView::STATUS;
@@ -402,8 +412,48 @@ void checkDayChange() {
   dirty = true;
 }
 
+void setAdvAudioMuted(bool muted) {
+  if (M5.getBoard() != m5::board_t::board_M5CardputerADV) return;
+
+  uint8_t dacControl = M5Cardputer.In_I2C.readRegister8(
+      ADV_AUDIO_CODEC_ADDRESS, 0x31, ADV_AUDIO_CODEC_I2C_FREQUENCY);
+  dacControl &= 0x9F;
+  if (muted) dacControl |= 0x60;
+  M5Cardputer.In_I2C.writeRegister8(
+      ADV_AUDIO_CODEC_ADDRESS, 0x31, dacControl, ADV_AUDIO_CODEC_I2C_FREQUENCY);
+}
+
+void powerDownAdvAudioCodec() {
+  if (M5.getBoard() != m5::board_t::board_M5CardputerADV) return;
+
+  setAdvAudioMuted(true);
+  M5Cardputer.In_I2C.writeRegister8(
+      ADV_AUDIO_CODEC_ADDRESS, 0x32, 0x00, ADV_AUDIO_CODEC_I2C_FREQUENCY);
+  delay(ADV_AUDIO_MUTE_SETTLE_MS);
+
+  M5Cardputer.In_I2C.writeRegister8(
+      ADV_AUDIO_CODEC_ADDRESS, 0x0D, 0xFC, ADV_AUDIO_CODEC_I2C_FREQUENCY);
+  M5Cardputer.In_I2C.writeRegister8(
+      ADV_AUDIO_CODEC_ADDRESS, 0x0E, 0x6A, ADV_AUDIO_CODEC_I2C_FREQUENCY);
+  M5Cardputer.In_I2C.writeRegister8(
+      ADV_AUDIO_CODEC_ADDRESS, 0x00, 0x00, ADV_AUDIO_CODEC_I2C_FREQUENCY);
+}
+
+void prepareSpeakerForSound() {
+  bool coldStart = !M5Cardputer.Speaker.isRunning();
+  M5Cardputer.Speaker.begin();
+  if (coldStart) {
+    // The ADV callback powers the codec up during begin(). Mute it again while
+    // its analog path and I2S clocks settle, without occupying a sound channel.
+    setAdvAudioMuted(true);
+    delay(SPEAKER_COLD_START_SETTLE_MS);
+  }
+  setAdvAudioMuted(false);
+}
+
 void beepDone() {
   if (!data.settings.sound) return;
+  prepareSpeakerForSound();
   M5Cardputer.Speaker.tone(1200, 100);
   delay(120);
   M5Cardputer.Speaker.tone(1700, 100);
@@ -412,7 +462,9 @@ void beepDone() {
 }
 
 void beepClick() {
-  if (data.settings.sound) M5Cardputer.Speaker.tone(3500, 18);
+  if (!data.settings.sound) return;
+  prepareSpeakerForSound();
+  M5Cardputer.Speaker.tone(3500, 18);
 }
 
 void completeTimer();
@@ -619,27 +671,114 @@ void updateBatteryLevel(bool force = false) {
 
 bool registerUserActivity() {
   lastUserInputMs = millis();
-  if (!displayDimmed) return false;
-  displayDimmed = false;
+
+  if (displayPowerState == DisplayPowerState::ACTIVE) return false;
+
+  bool consumeKey = displayPowerState == DisplayPowerState::SLEEPING;
+  if (consumeKey) M5Cardputer.Display.wakeup();
+  displayPowerState = DisplayPowerState::ACTIVE;
   M5Cardputer.Display.setBrightness(DISPLAY_BRIGHTNESS_NORMAL);
   dirty = true;
-  return true;
+  return consumeKey;
 }
 
 void wakeDisplayForTimerCompletion() {
   lastUserInputMs = millis();
-  if (displayDimmed) {
-    displayDimmed = false;
-    M5Cardputer.Display.setBrightness(DISPLAY_BRIGHTNESS_NORMAL);
+  if (displayPowerState == DisplayPowerState::SLEEPING) {
+    M5Cardputer.Display.wakeup();
   }
+  displayPowerState = DisplayPowerState::ACTIVE;
+  M5Cardputer.Display.setBrightness(DISPLAY_BRIGHTNESS_NORMAL);
   dirty = true;
 }
 
-void updateBacklight() {
-  if (displayDimmed) return;
-  if (millis() - lastUserInputMs < DISPLAY_DIM_TIMEOUT_MS) return;
-  displayDimmed = true;
-  M5Cardputer.Display.setBrightness(DISPLAY_BRIGHTNESS_DIM);
+void suspendSpeakerForDisplaySleep() {
+  if (M5.getBoard() == m5::board_t::board_M5CardputerADV &&
+      M5Cardputer.Speaker.isRunning()) {
+    // M5Unified 0.2.21 does not power down the ADV ES8311 in Speaker.end().
+    powerDownAdvAudioCodec();
+  }
+
+  // tone() lazily calls begin() the next time audio is needed, so keep the
+  // speaker stopped across timer-only Light Sleep wakeups.
+  M5Cardputer.Speaker.end();
+}
+
+void updateDisplayPower() {
+  uint32_t idleMs = millis() - lastUserInputMs;
+  if (idleMs >= DISPLAY_SLEEP_TIMEOUT_MS) {
+    if (displayPowerState != DisplayPowerState::SLEEPING) {
+      suspendSpeakerForDisplaySleep();
+      displayPowerState = DisplayPowerState::SLEEPING;
+      M5Cardputer.Display.sleep();
+    }
+    return;
+  }
+  if (idleMs >= DISPLAY_DIM_TIMEOUT_MS &&
+      displayPowerState == DisplayPowerState::ACTIVE) {
+    displayPowerState = DisplayPowerState::DIMMED;
+    M5Cardputer.Display.setBrightness(DISPLAY_BRIGHTNESS_DIM);
+  }
+}
+
+uint32_t lightSleepWakeIntervalMs() {
+  uint32_t now = millis();
+  uint32_t intervalMs = data.timerStatus == TimerStatus::RUNNING
+                          ? SAVE_INTERVAL_MS
+                          : LIGHT_SLEEP_IDLE_WAKE_INTERVAL_MS;
+
+  if (data.timerStatus == TimerStatus::RUNNING && data.remainingSeconds > 0) {
+    uint64_t remainingMs = static_cast<uint64_t>(data.remainingSeconds) * 1000ULL;
+    uint32_t elapsedSinceTickMs = now - lastTickMs;
+    uint32_t untilTimerCompletionMs = remainingMs > elapsedSinceTickMs
+                                        ? static_cast<uint32_t>(remainingMs - elapsedSinceTickMs)
+                                        : 1;
+    intervalMs = min(intervalMs, untilTimerCompletionMs);
+  }
+
+  if (!wifiSsid.isEmpty() && nextWifiAttemptMs != 0 &&
+      !deadlineReached(now, nextWifiAttemptMs)) {
+    intervalMs = min(intervalMs, nextWifiAttemptMs - now);
+  }
+
+  return max(intervalMs, 1UL);
+}
+
+bool enterLightSleepIfPossible() {
+  if (displayPowerState != DisplayPowerState::SLEEPING) return false;
+  if (M5.getBoard() != m5::board_t::board_M5CardputerADV) return false;
+
+  // Explicit Light Sleep powers down the Wi-Fi peripheral, so defer it while
+  // Wi-Fi is connecting, scanning, synchronizing, or intentionally always on.
+  if (WiFi.getMode() != WIFI_OFF) return false;
+
+  // The TCA8418 interrupt output is active-low. If it is already asserted,
+  // allow the next normal loop iteration to drain the pending key event first.
+  if (digitalRead(ADV_KEYBOARD_INTERRUPT_PIN) == LOW) return false;
+
+  uint64_t wakeAfterUs = static_cast<uint64_t>(lightSleepWakeIntervalMs()) * 1000ULL;
+  if (gpio_wakeup_enable(ADV_KEYBOARD_INTERRUPT_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) {
+    return false;
+  }
+  if (esp_sleep_enable_gpio_wakeup() != ESP_OK ||
+      esp_sleep_enable_timer_wakeup(wakeAfterUs) != ESP_OK) {
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+    gpio_wakeup_disable(ADV_KEYBOARD_INTERRUPT_PIN);
+    gpio_set_intr_type(ADV_KEYBOARD_INTERRUPT_PIN, GPIO_INTR_ANYEDGE);
+    return false;
+  }
+
+  M5Cardputer.Display.waitDisplay();
+  esp_err_t result = esp_light_sleep_start();
+
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+  gpio_wakeup_disable(ADV_KEYBOARD_INTERRUPT_PIN);
+  // gpio_wakeup_enable() changes the interrupt to level-low. Restore the
+  // edge mode installed by the M5Cardputer TCA8418 keyboard driver.
+  gpio_set_intr_type(ADV_KEYBOARD_INTERRUPT_PIN, GPIO_INTR_ANYEDGE);
+  return result == ESP_OK;
 }
 
 // Screen modules are included here so they share the application state above
@@ -660,6 +799,9 @@ void setup() {
   auto config = M5.config();
   config.output_power = true;
   M5Cardputer.begin(config, true);
+  // Put the ADV codec into a known silent state at the earliest point where
+  // its internal I2C bus is available. This does not start the speaker task.
+  powerDownAdvAudioCodec();
   M5Cardputer.Display.setRotation(1);
   M5Cardputer.Display.setBrightness(DISPLAY_BRIGHTNESS_NORMAL);
   M5Cardputer.Display.setTextWrap(false);
@@ -700,13 +842,14 @@ void loop() {
   updateBatteryLevel();
   updateWifiAndTime();
   handleKeyboard();
-  updateBacklight();
+  updateDisplayPower();
   checkDayChange();
   if (!timerRestorePending) tickTimer();
 
-  if (dirty || (data.timerStatus == TimerStatus::RUNNING &&
-                data.remainingSeconds != lastDrawSecond)) {
+  if (displayPowerState != DisplayPowerState::SLEEPING &&
+      (dirty || (data.timerStatus == TimerStatus::RUNNING &&
+                 data.remainingSeconds != lastDrawSecond))) {
     drawScreen();
   }
-  delay(8);
+  if (!enterLightSleepIfPossible()) delay(8);
 }

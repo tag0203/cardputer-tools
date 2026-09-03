@@ -36,23 +36,27 @@ void drawResult() {
   }
 
   if (resultType == ResultType::REWARD_EARNED) {
-    drawFooter("[U] USE FREE TIME       [F] FOCUS", "[B] START LONG BREAK    [H] HOME");
+    drawFooter("[SPACE] START LONG BREAK", "[U] FREE TIME   [H] HOME");
   } else if (resultType == ResultType::BREAK_DONE || resultType == ResultType::FREE_DONE) {
-    drawFooter("[F] START NEXT FOCUS", "[H] RETURN HOME");
+    drawFooter("[SPACE] START NEXT FOCUS", "[H] RETURN HOME");
   } else {
-    drawFooter("[B] START SHORT BREAK   [F] FOCUS", "[H] RETURN HOME");
+    drawFooter("[SPACE] START SHORT BREAK", "[H] RETURN HOME");
   }
 }
 
 void handleResultKey(const Keyboard_Class::KeysState& keys) {
-  if (keyPressed(keys, 'h')) {
+  if (keys.space) {
+    if (resultType == ResultType::FOCUS_DONE) {
+      startTimer(TimerMode::SHORT_BREAK);
+    } else if (resultType == ResultType::REWARD_EARNED) {
+      startTimer(TimerMode::LONG_BREAK);
+    } else {
+      startTimer(TimerMode::FOCUS);
+    }
+  } else if (keyPressed(keys, 'h')) {
     screen = Screen::POMODORO;
     resultType = ResultType::NONE;
     dirty = true;
-  } else if (keyPressed(keys, 'f')) startTimer(TimerMode::FOCUS);
-  else if (keyPressed(keys, 'b')) {
-    startTimer(resultType == ResultType::REWARD_EARNED ? TimerMode::LONG_BREAK
-                                                       : TimerMode::SHORT_BREAK);
   } else if (keyPressed(keys, 'u') && data.freeBalanceSeconds > 0) {
     startTimer(TimerMode::FREE_TIME);
   }
