@@ -7,3 +7,10 @@ build/
 *.bin
 *.elf
 *.map
+
+# macOS Finder metadata.
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*

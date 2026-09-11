@@ -67,6 +67,12 @@ void handleHomeKey(const Keyboard_Class::KeysState& keys) {
   if (keyPressed(keys, 'f')) startTimer(TimerMode::FOCUS);
   else if (keyPressed(keys, 'b')) startTimer(TimerMode::SHORT_BREAK);
   else if (keyPressed(keys, 'u') && data.freeBalanceSeconds > 0) startTimer(TimerMode::FREE_TIME);
-  else if (keyPressed(keys, 's')) { screen = Screen::SETTINGS; dirty = true; beepClick(); }
+  else if (keyPressed(keys, 's')) {
+    settingsNumberInputActive = false;
+    settingsNumberInput = "";
+    screen = Screen::SETTINGS;
+    dirty = true;
+    beepClick();
+  }
   else if (keyPressed(keys, 'd')) { screen = Screen::HISTORY; dirty = true; beepClick(); }
 }

@@ -17,8 +17,9 @@ void drawScreen() {
 
 void handleKeyboard() {
   if (!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) return;
-  // The first key after dimming only restores brightness, preventing an
-  // unintended menu action while the screen is hard to see.
+  // A key pressed while the display is dimmed both restores brightness and
+  // performs its normal action. A sleeping panel consumes one key to wake so an
+  // unseen action is not triggered.
   if (registerUserActivity()) return;
   const auto& keys = M5Cardputer.Keyboard.keysState();
   switch (screen) {
