@@ -41,6 +41,19 @@ constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 5UL * 60UL * 1000UL;
 constexpr uint32_t DISPLAY_DIM_TIMEOUT_MS = 2UL * 60UL * 1000UL;
 constexpr uint8_t DISPLAY_BRIGHTNESS_NORMAL = 120;
 constexpr uint8_t DISPLAY_BRIGHTNESS_DIM = 20;
+constexpr uint8_t AUDIO_CHANNEL = 0;
+
+struct ToneStep {
+  uint16_t frequency;
+  uint16_t durationMs;
+  uint16_t pauseAfterMs;
+};
+
+constexpr ToneStep COMPLETION_TONES[] = {
+  {1200, 100, 20},
+  {1700, 100, 20},
+  {2200, 180, 0},
+};
 
 enum class Screen : uint8_t {
   LOCK_SCREEN, LAUNCHER, POMODORO, SETTINGS, HISTORY, RESULT, WIFI_SETTINGS
@@ -122,6 +135,9 @@ int16_t wifiScanCount = 0;
 int16_t wifiNetworkIndex = 0;
 uint32_t wifiConnectStartedMs = 0;
 uint32_t lastClockEpoch = 0;
+bool completionSoundPlaying = false;
+uint8_t completionToneIndex = 0;
+uint32_t nextCompletionToneMs = 0;
 
 void restoreRunningTimer();
 void wakeDisplayForTimerCompletion();
@@ -402,17 +418,42 @@ void checkDayChange() {
   dirty = true;
 }
 
+void playCompletionTone(uint8_t index) {
+  const ToneStep& step = COMPLETION_TONES[index];
+  M5Cardputer.Speaker.tone(step.frequency, step.durationMs, AUDIO_CHANNEL, true);
+  nextCompletionToneMs = millis() + step.durationMs + step.pauseAfterMs;
+}
+
+void updateAudio() {
+  if (!completionSoundPlaying) return;
+  if (!data.settings.sound) {
+    M5Cardputer.Speaker.stop(AUDIO_CHANNEL);
+    completionSoundPlaying = false;
+    return;
+  }
+  if (static_cast<int32_t>(millis() - nextCompletionToneMs) < 0) return;
+
+  completionToneIndex++;
+  if (completionToneIndex >= sizeof(COMPLETION_TONES) / sizeof(COMPLETION_TONES[0])) {
+    completionSoundPlaying = false;
+    return;
+  }
+  playCompletionTone(completionToneIndex);
+}
+
 void beepDone() {
   if (!data.settings.sound) return;
-  M5Cardputer.Speaker.tone(1200, 100);
-  delay(120);
-  M5Cardputer.Speaker.tone(1700, 100);
-  delay(120);
-  M5Cardputer.Speaker.tone(2200, 180);
+  completionToneIndex = 0;
+  completionSoundPlaying = true;
+  playCompletionTone(completionToneIndex);
 }
 
 void beepClick() {
-  if (data.settings.sound) M5Cardputer.Speaker.tone(3500, 18);
+  // Completion feedback has priority. In particular, an automatic next timer
+  // starts immediately after completion and must not replace its final tone.
+  if (data.settings.sound && !completionSoundPlaying) {
+    M5Cardputer.Speaker.tone(3500, 18, AUDIO_CHANNEL, true);
+  }
 }
 
 void completeTimer();
@@ -697,6 +738,7 @@ void setup() {
 
 void loop() {
   M5Cardputer.update();
+  updateAudio();
   updateBatteryLevel();
   updateWifiAndTime();
   handleKeyboard();
