@@ -12,11 +12,30 @@ bool omikujiSettings = false;
 bool omikujiEditing = false;
 String omikujiInput;
 constexpr uint32_t OMIKUJI_SPIN_MS = 3000;
+constexpr uint8_t OMIKUJI_SLOW_STEPS = 10;
+constexpr uint32_t OMIKUJI_FAST_MS = 55;
 bool omikujiSpinning = false;
 uint8_t omikujiPreview = 0;
 uint8_t omikujiTarget = 0;
-uint32_t omikujiStartedMs = 0;
+uint16_t omikujiTotalSteps = 0;
+uint16_t omikujiCompletedSteps = 0;
+uint32_t omikujiDurationMs = 0;
+uint32_t omikujiCompletedMs = 0;
+uint32_t omikujiStepStartedMs = 0;
 uint32_t omikujiNextStepMs = 0;
+
+// The final ten transitions each take longer, ending at 300 ms.
+uint32_t omikujiStepInterval(uint16_t step) {
+  const int slowStep = int(step) - int(omikujiTotalSteps - OMIKUJI_SLOW_STEPS);
+  return OMIKUJI_FAST_MS + (slowStep > 0 ? 245 * slowStep / OMIKUJI_SLOW_STEPS : 0);
+}
+
+uint32_t omikujiProgressMs(uint32_t now) {
+  if (!omikujiSpinning) return omikujiCompletedMs;
+  const uint32_t interval = omikujiStepInterval(omikujiCompletedSteps + 1);
+  // Do not finish the bar before the corresponding transition is processed.
+  return omikujiCompletedMs + min(uint32_t(now - omikujiStepStartedMs), interval - 1);
+}
 
 void updateOmikuji() {
   if (!omikujiSpinning) return;
@@ -25,18 +44,17 @@ void updateOmikuji() {
     return;
   }
   const uint32_t now = millis();
-  const uint32_t elapsed = now - omikujiStartedMs;
   if (static_cast<int32_t>(now - omikujiNextStepMs) < 0) return;
   omikujiPreview = (omikujiPreview + 1) % omikujiCount;
-  if (elapsed >= OMIKUJI_SPIN_MS && omikujiPreview == omikujiTarget) {
+  omikujiCompletedMs += omikujiStepInterval(++omikujiCompletedSteps);
+  if (omikujiCompletedSteps == omikujiTotalSteps) {
     // Stop on the actual roulette candidate; never jump to another result.
     omikujiResult = omikujiPreview;
     omikujiSpinning = false;
     if (!completionSoundPlaying) beepDone();
   } else {
-    // Cap the slowdown after three seconds while advancing to the target.
-    const uint32_t rampMs = min(elapsed, OMIKUJI_SPIN_MS);
-    omikujiNextStepMs = now + 55 + 245 * rampMs * rampMs / (OMIKUJI_SPIN_MS * OMIKUJI_SPIN_MS);
+    omikujiStepStartedMs = now;
+    omikujiNextStepMs = now + omikujiStepInterval(omikujiCompletedSteps + 1);
     beepClick();
   }
   dirty = true;
@@ -51,8 +69,30 @@ void startOmikuji() {
   omikujiResult = -1;
   omikujiPreview = esp_random() % omikujiCount;
   omikujiSpinning = true;
-  omikujiStartedMs = millis();
-  omikujiNextStepMs = omikujiStartedMs + 55;
+  // Choose the step count closest to three seconds that lands on the target.
+  // Include at least one fast transition before the ten slowdown transitions.
+  const uint16_t offset = (omikujiTarget + omikujiCount - omikujiPreview) % omikujiCount;
+  uint32_t bestDifference = UINT32_MAX;
+  uint16_t bestSteps = 0;
+  for (uint16_t steps = OMIKUJI_SLOW_STEPS + 1;
+       steps <= OMIKUJI_SPIN_MS / OMIKUJI_FAST_MS + OMIKUJI_SLOW_STEPS; ++steps) {
+    if (steps % omikujiCount != offset) continue;
+    omikujiTotalSteps = steps;
+    uint32_t duration = 0;
+    for (uint16_t step = 1; step <= steps; ++step) duration += omikujiStepInterval(step);
+    const uint32_t difference = duration > OMIKUJI_SPIN_MS
+        ? duration - OMIKUJI_SPIN_MS : OMIKUJI_SPIN_MS - duration;
+    if (difference < bestDifference) {
+      bestDifference = difference;
+      omikujiDurationMs = duration;
+      bestSteps = steps;
+    }
+  }
+  omikujiTotalSteps = bestSteps;
+  omikujiCompletedSteps = 0;
+  omikujiCompletedMs = 0;
+  omikujiStepStartedMs = millis();
+  omikujiNextStepMs = omikujiStepStartedMs + omikujiStepInterval(1);
 }
 
 // Keep the original keys for set 1 so existing choices remain available.
@@ -106,16 +146,17 @@ void drawOmikuji() {
     drawFitText(omikujiLabel(omikujiIndex), 120, 77, 224, 2, CLOCK_COLOR);
     drawFooter("[UP/DOWN] PICK  [LEFT/RIGHT] COUNT", "[ENTER] EDIT [1-3] SET [H] BACK");
   } else if (omikujiSpinning) {
-    drawFitText("Drawing...", 120, 34, 224, 2, MUTED);
-    drawFitText(omikujiLabel(omikujiPreview), 120, 64, 224, 4, CLOCK_COLOR);
-    const uint32_t elapsed = min(uint32_t(millis() - omikujiStartedMs), OMIKUJI_SPIN_MS);
-    canvas.fillRoundRect(20, 91, 200, 5, 2, PANEL);
-    canvas.fillRoundRect(20, 91, max(2, int(200 * elapsed / OMIKUJI_SPIN_MS)), 5, 2, CLOCK_COLOR);
+    drawCompanion("Drawing...", CLOCK_COLOR);
+    drawFitText(omikujiLabel(omikujiPreview), 147, 69, 172, 4, CLOCK_COLOR);
+    const uint32_t elapsed = omikujiProgressMs(millis());
+    canvas.fillRoundRect(61, 94, 172, 5, 2, PANEL);
+    canvas.fillRoundRect(61, 94, max(2, int(172 * elapsed / omikujiDurationMs)), 5, 2, CLOCK_COLOR);
     drawFooter("ROLLING...", "[H] CANCEL / HOME");
   } else {
-    drawFitText(String(omikujiCount) + " choices", 120, 34, 224, 2, MUTED);
-    drawFitText(omikujiResult < 0 ? "Ready?" : omikujiLabel(omikujiResult), 120, 64, 224, 4, TEXT);
-    if (omikujiResult >= 0) drawFitText(String("Choice #") + (omikujiResult + 1), 120, 91, 224, 1, CLOCK_COLOR);
+    String message = String(omikujiCount) + " choices";
+    drawCompanion(message.c_str(), CLOCK_COLOR);
+    drawFitText(omikujiResult < 0 ? "Ready?" : omikujiLabel(omikujiResult), 147, 69, 172, 4, TEXT);
+    if (omikujiResult >= 0) drawFitText(String("Choice #") + (omikujiResult + 1), 147, 96, 172, 1, CLOCK_COLOR);
     drawFooter("[SPACE/ENTER] DRAW   [1-3] SET", "[S] EDIT CHOICES   [H] HOME");
   }
 }
