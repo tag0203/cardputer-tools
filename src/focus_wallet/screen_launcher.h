@@ -11,7 +11,7 @@ void drawLauncher() {
   uint16_t accent = FOCUS;
   if (launcherIndex == 0 && data.timerStatus != TimerStatus::IDLE) {
     detail1 = String(modeName(data.timerMode)) + "  " + formatTime(data.remainingSeconds);
-  } else if (launcherIndex == 1) {
+  } else if (launcherIndex == 2) {
     title = "WI-FI SETTINGS";
     accent = WIFI_COLOR;
     if (WiFi.status() == WL_CONNECTED) {
@@ -21,6 +21,11 @@ void drawLauncher() {
       detail1 = "DISCONNECTED";
       detail2 = "Scan and manage networks";
     }
+  } else if (launcherIndex == 1) {
+    title = "OMIKUJI";
+    accent = CLOCK_COLOR;
+    detail1 = "Draw your answer";
+    detail2 = String(omikujiCount) + " choices / editable messages";
   }
 
   lcd.fillRoundRect(8, 27, 224, 70, 9, PANEL);
@@ -33,17 +38,18 @@ void drawLauncher() {
   drawFitText(detail1, 68, 63, 154, 1, MUTED, middle_left);
   drawFitText(detail2, 16, 87, 206, 1, MUTED, middle_left);
 
-  for (uint8_t i = 0; i < 2; ++i) {
-    lcd.fillCircle(114 + i * 12, 101, i == launcherIndex ? 4 : 2,
+  for (uint8_t i = 0; i < 3; ++i) {
+    lcd.fillCircle(108 + i * 12, 101, i == launcherIndex ? 4 : 2,
                    i == launcherIndex ? accent : MUTED);
   }
-  drawFooter(String("APP ") + (launcherIndex + 1) + " / 2",
-             "[ENTER] OPEN   [H] LOCK   [1] [2]");
+  drawFooter(String("APP ") + (launcherIndex + 1) + " / 3",
+             "[ENTER] OPEN   [H] LOCK   [1] [2] [3]");
 }
 
 void openLauncherApp(uint8_t index) {
-  launcherIndex = constrain(index, 0, 1);
+  launcherIndex = constrain(index, 0, 2);
   if (launcherIndex == 0) screen = Screen::POMODORO;
+  else if (launcherIndex == 1) screen = Screen::OMIKUJI;
   else screen = Screen::WIFI_SETTINGS;
   dirty = true;
   beepClick();
@@ -57,14 +63,15 @@ void handleLauncherKey(const Keyboard_Class::KeysState& keys) {
     return;
   }
   if (arrowLeft(keys) || arrowUp(keys)) {
-    launcherIndex = launcherIndex == 0 ? 1 : launcherIndex - 1;
+    launcherIndex = launcherIndex == 0 ? 2 : launcherIndex - 1;
     dirty = true;
     beepClick();
   } else if (arrowRight(keys) || arrowDown(keys)) {
-    launcherIndex = (launcherIndex + 1) % 2;
+    launcherIndex = (launcherIndex + 1) % 3;
     dirty = true;
     beepClick();
   } else if (keys.enter) openLauncherApp(launcherIndex);
   else if (keyPressed(keys, '1')) openLauncherApp(0);
   else if (keyPressed(keys, '2')) openLauncherApp(1);
+  else if (keyPressed(keys, '3')) openLauncherApp(2);
 }

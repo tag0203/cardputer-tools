@@ -9,6 +9,7 @@ void drawScreen() {
     case Screen::HISTORY: drawHistory(); break;
     case Screen::RESULT: drawResult(); break;
     case Screen::WIFI_SETTINGS: drawWifiSettings(); break;
+    case Screen::OMIKUJI: drawOmikuji(); break;
   }
   canvas.pushSprite(0, 0);
   dirty = false;
@@ -30,5 +31,6 @@ void handleKeyboard() {
     case Screen::HISTORY: handleHistoryKey(keys); break;
     case Screen::RESULT: handleResultKey(keys); break;
     case Screen::WIFI_SETTINGS: handleWifiKey(keys); break;
+    case Screen::OMIKUJI: handleOmikujiKey(keys); break;
   }
 }

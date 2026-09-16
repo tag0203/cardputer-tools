@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
+#include <esp_random.h>
 #include <esp_sntp.h>
 #include <time.h>
 #include "character_image.h"
@@ -69,7 +70,7 @@ constexpr ToneStep COMPLETION_TONES[] = {
 };
 
 enum class Screen : uint8_t {
-  LOCK_SCREEN, LAUNCHER, POMODORO, SETTINGS, HISTORY, RESULT, WIFI_SETTINGS
+  LOCK_SCREEN, LAUNCHER, POMODORO, SETTINGS, HISTORY, RESULT, WIFI_SETTINGS, OMIKUJI
 };
 enum class TimerMode : uint8_t { NONE, FOCUS, SHORT_BREAK, LONG_BREAK, FREE_TIME };
 enum class TimerStatus : uint8_t { IDLE, RUNNING, PAUSED };
@@ -861,6 +862,7 @@ bool enterLightSleepIfPossible() {
 #include "screen_settings.h"
 #include "screen_history.h"
 #include "screen_result.h"
+#include "screen_omikuji.h"
 #include "screen_launcher.h"
 #include "screen_lock.h"
 #include "screen_wifi.h"
@@ -887,6 +889,7 @@ void setup() {
 
   preferences.begin("focuswallet", false);
   if (!loadData()) saveData();
+  loadOmikuji();
   if (data.settings.sound) {
     // Warm up the codec and I2S path before the first key event, but keep the
     // DAC muted until an actual sound is queued.
@@ -924,6 +927,7 @@ void loop() {
   updateDisplayPower();
   checkDayChange();
   if (!timerRestorePending) tickTimer();
+  updateOmikuji();
 
   if (displayPowerState != DisplayPowerState::SLEEPING &&
       (dirty || (data.timerStatus == TimerStatus::RUNNING &&

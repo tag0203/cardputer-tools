@@ -6,7 +6,7 @@ M5Stack Cardputer向けに作成したツールを管理するリポジトリで
 
 | アプリ | 概要 | ソース | ドキュメント |
 | --- | --- | --- | --- |
-| Focus Wallet | 集中すると自由時間を獲得できるポモドーロ、JST時計、Wi-Fi設定 | [`src/focus_wallet`](src/focus_wallet) | [仕様と操作](docs/focus-wallet/README.md) |
+| Focus Wallet | 集中すると自由時間を獲得できるポモドーロ、JST時計、Wi-Fi設定、おみくじ | [`src/focus_wallet`](src/focus_wallet) | [仕様と操作](docs/focus-wallet/README.md) |
 
 ## ディレクトリ構成
 
