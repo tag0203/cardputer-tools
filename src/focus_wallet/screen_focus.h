@@ -34,7 +34,8 @@ void drawHome() {
   uint32_t shownSeconds = data.timerStatus == TimerStatus::IDLE
                             ? data.settings.focusMinutes * 60UL
                             : data.remainingSeconds;
-  drawFitText(formatTime(shownSeconds), 147, 73, 172, 7, accent);
+  // Leave space below the timer for the progress dots and cycle count.
+  drawFitText(formatTime(shownSeconds), 147, 69, 172, 7, accent, middle_center, 0.8f);
   drawProgress(97);
 
   if (data.timerStatus == TimerStatus::IDLE) {

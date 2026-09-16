@@ -45,10 +45,11 @@ void removeLastUtf8Character(String& value) {
 }
 
 void drawFitText(const String& value, int x, int y, int maxWidth,
-                 uint8_t font, uint16_t color, textdatum_t datum = middle_center) {
+                 uint8_t font, uint16_t color, textdatum_t datum = middle_center,
+                 float textSize = 1.0f) {
   auto& lcd = canvas;
   lcd.setTextFont(font);
-  lcd.setTextSize(1.0f);
+  lcd.setTextSize(textSize);
   String fitted = value;
   if (lcd.textWidth(fitted) > maxWidth) {
     const String ellipsis = "...";
@@ -60,6 +61,7 @@ void drawFitText(const String& value, int x, int y, int maxWidth,
   lcd.setTextDatum(datum);
   lcd.setTextColor(color);
   lcd.drawString(fitted, x, y);
+  lcd.setTextSize(1.0f);
 }
 
 void drawFooter(const String& firstLine, const String& secondLine) {
