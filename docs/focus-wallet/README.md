@@ -28,7 +28,7 @@ JST時計のロック画面、アプリ選択ホーム、Wi-Fi設定と、集中
 - 完了時の内蔵スピーカー通知
 - 全画面右上へのバッテリーアイコンと残量パーセント表示
 - 自動休憩・自動集中、翌日繰り越し、サウンド設定
-- [`sample.png`](../../assets/focus-wallet/sample.png)から生成したキャラクター表示と独立した`drawCompanion()`描画部分
+- 通常表情と、完了時・おみくじ結果の笑顔を`drawCompanion()`で切り替える
 
 ## 操作
 
@@ -122,6 +122,8 @@ Arduino IDEで次を選択します。
 | ファイル | 担当 |
 | --- | --- |
 | `focus_wallet.ino` | 状態、タイマー、保存、Wi-Fi/NTP更新、setup/loop |
+| `character_image.h` | 通常表情の埋め込みPNGと表情の選択 |
+| `character_happy_image.h` | 完了時・おみくじ結果の笑顔PNG |
 | `ui_common.h` | ヘッダー、フッター、文字収め、バッテリー、共通キー判定 |
 | `screen_launcher.h` | アプリ選択ホーム |
 | `screen_focus.h` | Focus Wallet／タイマー |
@@ -168,6 +170,17 @@ Wi-Fi設定画面で`A`を押して常時接続モードをONにすると、同�
 
 初代CardputerでWi-Fiにも接続できず、電源断中の経過時間を確認できない場合は、不正な完了判定を避けるため残り時間を保持した一時停止状態で復元します。
 
-## キャラクター画像の追加
+## キャラクター画像
 
-[`sample.png`](../../assets/focus-wallet/sample.png)はCardputer画面向けに顔から上半身を52×64pxへ切り出し、`character_image.h`の透過PNGデータとしてフラッシュへ埋め込んでいます。SDカードは不要です。表示処理は`drawCompanion()`に集約しているため、今後は別表情の画像配列を追加して状態ごとに切り替えられます。
+[`sample.png`](../../assets/focus-wallet/sample.png)から切り出した通常の表情は`character_image.h`、落ち着いた笑顔は`character_happy_image.h`です。どちらも全身画像から顔と上半身を52×64pxへ切り出し、透過PNGとしてフラッシュへ埋め込んでいます。SDカードは不要です。角・髪・顔が枠で切れないよう、キャラクター上端に少し余白を残しています。
+
+`drawCompanion()`が表情を選びます。集中・休憩・自由時間の完了画面と、おみくじの結果表示は笑顔です。待ち受け、抽選中、その他の画面は通常の表情のままです。
+
+全身PNGから笑顔の埋め込みを作り直す場合（Pillowが必要です）:
+
+```sh
+python3 scripts/embed_companion.py \
+  path/to/full-body.png \
+  -o src/focus_wallet/character_happy_image.h \
+  --symbol character_happy_png
+```

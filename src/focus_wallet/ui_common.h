@@ -72,9 +72,16 @@ void drawFooter(const String& firstLine, const String& secondLine) {
   drawFitText(secondLine, 120, 127, 228, 1, TEXT);
 }
 
-void drawCompanion(const char* message, uint16_t accent) {
+void drawCompanion(const char* message, uint16_t accent,
+                   CompanionExpression expression = CompanionExpression::Standard) {
   auto& lcd = canvas;
-  lcd.drawPng(character_png, character_png_len, 2, 21);
+  const uint8_t* png = character_png;
+  uint32_t pngLen = character_png_len;
+  if (expression == CompanionExpression::Happy) {
+    png = character_happy_png;
+    pngLen = character_happy_png_len;
+  }
+  lcd.drawPng(png, pngLen, 2, 21);
   lcd.fillRoundRect(59, 24, 176, 23, 6, PANEL);
   lcd.fillTriangle(59, 34, 53, 40, 63, 39, PANEL);
   drawFitText(message, 147, 35, 164, 1, TEXT);
