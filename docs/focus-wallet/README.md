@@ -172,7 +172,7 @@ Wi-Fi設定画面で`A`を押して常時接続モードをONにすると、同�
 
 ## キャラクター画像
 
-[`sample.png`](../../assets/focus-wallet/sample.png)から切り出した通常の表情は`character_image.h`、落ち着いた笑顔は`character_happy_image.h`です。どちらも全身画像から顔と上半身を52×64pxへ切り出し、透過PNGとしてフラッシュへ埋め込んでいます。SDカードは不要です。角・髪・顔が枠で切れないよう、キャラクター上端に少し余白を残しています。
+[`sample.png`](../../assets/focus-wallet/sample.png)から切り出した通常の表情は`character_image.h`、[`character-happy.png`](../../assets/focus-wallet/character-happy.png)から切り出した落ち着いた笑顔は`character_happy_image.h`です。どちらも全身画像から顔と上半身を52×64pxへ切り出し、透過PNGとしてフラッシュへ埋め込んでいます。SDカードは不要です。角・髪・顔が枠で切れないよう、キャラクター上端に少し余白を残しています。
 
 `drawCompanion()`が表情を選びます。集中・休憩・自由時間の完了画面と、おみくじの結果表示は笑顔です。待ち受け、抽選中、その他の画面は通常の表情のままです。
 
@@ -180,7 +180,7 @@ Wi-Fi設定画面で`A`を押して常時接続モードをONにすると、同�
 
 ```sh
 python3 scripts/embed_companion.py \
-  path/to/full-body.png \
+  assets/focus-wallet/character-happy.png \
   -o src/focus_wallet/character_happy_image.h \
   --symbol character_happy_png
 ```
