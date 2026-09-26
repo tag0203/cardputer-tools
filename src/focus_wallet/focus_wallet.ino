@@ -19,9 +19,8 @@
 //   ADV arrow positions (; , . /) : navigate without holding Fn
 //   H     : home
 //
-// The UI intentionally uses an isolated drawCompanion() function. Replace that
-// function with pushImage()/drawPng() later to add character artwork without
-// touching any of the timer and reward rules.
+// drawCompanion() draws the embedded portrait. Timer completion and an omikuji
+// result use the happy expression; every other companion stays on the default.
 
 namespace {
 

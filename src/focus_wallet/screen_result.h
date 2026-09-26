@@ -20,7 +20,7 @@ void drawResult() {
     accent = FREE_COLOR;
   }
   header(title, accent);
-  drawCompanion(message, accent);
+  drawCompanion(message, accent, CompanionExpression::Happy);
 
   lcd.setTextDatum(middle_center);
   lcd.setTextFont(2);

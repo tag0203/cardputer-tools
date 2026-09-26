@@ -154,7 +154,10 @@ void drawOmikuji() {
     drawFooter("ROLLING...", "[H] CANCEL / HOME");
   } else {
     String message = String(omikujiCount) + " choices";
-    drawCompanion(message.c_str(), CLOCK_COLOR);
+    const CompanionExpression expression = omikujiResult >= 0
+                                             ? CompanionExpression::Happy
+                                             : CompanionExpression::Standard;
+    drawCompanion(message.c_str(), CLOCK_COLOR, expression);
     drawFitText(omikujiResult < 0 ? "Ready?" : omikujiLabel(omikujiResult), 147, 69, 172, 4, TEXT);
     if (omikujiResult >= 0) drawFitText(String("Choice #") + (omikujiResult + 1), 147, 96, 172, 1, CLOCK_COLOR);
     drawFooter("[SPACE/ENTER] DRAW   [1-3] SET", "[S] EDIT CHOICES   [H] HOME");

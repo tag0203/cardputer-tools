@@ -1,6 +1,11 @@
 #pragma once
 #include <Arduino.h>
 
+// Portraits drawn by drawCompanion(). Standard is the everyday face.
+// Happy is the calm smile used when a timer finishes or an omikuji result is shown.
+// Arduino.h defines a DEFAULT macro, so the everyday face is named Standard.
+enum class CompanionExpression : uint8_t { Standard, Happy };
+
 // Cropped and resized from assets/focus-wallet/sample.png for the 240x135 display.
 const uint8_t character_png[] PROGMEM = {
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
@@ -728,3 +733,5 @@ const uint8_t character_png[] PROGMEM = {
   0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
 };
 const uint32_t character_png_len = 8670;
+
+#include "character_happy_image.h"
